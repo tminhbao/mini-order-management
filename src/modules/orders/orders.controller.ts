@@ -1,14 +1,15 @@
 
 import {
+    BadRequestException,
     Body,
-  Controller,
-  DefaultValuePipe,
-  Delete,
-  Get,
-  Param,
-  ParseIntPipe,
-  Post,
-  Query,
+    Controller,
+    DefaultValuePipe,
+    Delete,
+    Get,
+    Param,
+    ParseIntPipe,
+    Post,
+    Query,
 } from '@nestjs/common';
 import {
   ApiOperation,
@@ -40,6 +41,21 @@ export class OrdersController {
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
     @Query('status') status?: OrderStatus,
   ) {
+    if (page < 1) {
+        throw new BadRequestException('page must be at least 1');
+    }
+
+    if (limit < 1 || limit > 100) {
+        throw new BadRequestException('limit must be between 1 and 100');
+    }
+
+    if (
+        status !== undefined &&
+        !Object.values(OrderStatus).includes(status)
+    ) {
+        throw new BadRequestException('Invalid order status');
+    }
+
     return this.ordersService.findAll(page, limit, status);
   }
 
