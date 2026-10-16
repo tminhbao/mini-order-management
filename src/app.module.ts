@@ -6,6 +6,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProductsModule } from './modules/products/products.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
+import { BullModule } from '@nestjs/bullmq';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -28,7 +29,24 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       }),
     }),
     ProductsModule,
-    OrdersModule
+    OrdersModule,
+    
+    BullModule.forRootAsync({
+    inject: [ConfigService],
+    useFactory: (config: ConfigService) => {
+      const useTls = config.get<string>('REDIS_TLS') === 'true';
+
+      return {
+        connection: {
+          host: config.getOrThrow<string>('REDIS_HOST'),
+          port: config.getOrThrow<number>('REDIS_PORT'),
+          username: config.get<string>('REDIS_USERNAME') || undefined,
+          password: config.get<string>('REDIS_PASSWORD') || undefined,
+          ...(useTls ? { tls: {} } : {}),
+        },
+      };
+    },
+  }),
   ],
   controllers: [AppController],
   providers: [AppService],

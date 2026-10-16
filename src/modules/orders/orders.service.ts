@@ -11,6 +11,8 @@ import { Product } from '../products/entities/product.entity.js';
 import { Order, OrderStatus } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { CreateOrderDto } from './dto/create-order.dto.js';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 
 @Injectable()
 export class OrdersService {
@@ -18,76 +20,112 @@ export class OrdersService {
     private readonly dataSource: DataSource,
     @InjectRepository(Order)
     private readonly ordersRepository: Repository<Order>,
+    @InjectQueue('order-processing')
+    private readonly orderQueue: Queue,
+    @InjectQueue('order-auto-cancel')
+    private readonly autoCancelQueue: Queue,
   ) {}
 
-  async create(dto: CreateOrderDto): Promise<Order> {
-    const quantities = new Map<number, number>();
+  
+async create(dto: CreateOrderDto): Promise<Order> {
+  const quantities = new Map<number, number>();
 
-    for (const item of dto.items) {
-      quantities.set(
-        item.productId,
-        (quantities.get(item.productId) ?? 0) + item.quantity,
+  for (const item of dto.items) {
+    quantities.set(
+      item.productId,
+      (quantities.get(item.productId) ?? 0) + item.quantity,
+    );
+  }
+
+  const order = await this.dataSource.transaction(async (manager) => {
+  const productRepository = manager.getRepository(Product);
+  const orderRepository = manager.getRepository(Order);
+
+  const orderItems: OrderItem[] = [];
+  let totalCents = 0;
+
+  const productIds = [...quantities.keys()].sort((a, b) => a - b);
+
+  for (const productId of productIds) {
+    const product = await productRepository.findOne({
+      where: { id: productId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!product) {
+      throw new NotFoundException(
+        `Product with ID ${productId} not found`,
       );
     }
 
-    return this.dataSource.transaction(async (manager) => {
-      const productRepository = manager.getRepository(Product);
-      const orderRepository = manager.getRepository(Order);
+    const quantity = quantities.get(productId)!;
 
-      const orderItems: OrderItem[] = [];
-      let totalCents = 0;
+    if (product.stock < quantity) {
+      throw new BadRequestException(
+        `Insufficient stock for product ${productId}`,
+      );
+    }
 
-      const productIds = [...quantities.keys()].sort((a, b) => a - b);
+    const [whole, fraction = ''] = product.price.split('.');
+    const priceCents =
+      Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
 
-      for (const productId of productIds) {
-        const product = await productRepository.findOne({
-          where: { id: productId },
-          lock: { mode: 'pessimistic_write' },
-        });
+    totalCents += priceCents * quantity;
 
-        if (!product) {
-          throw new NotFoundException(
-            `Product with ID ${productId} not found`,
-          );
-        }
+    orderItems.push(
+      manager.create(OrderItem, {
+        productId: product.id,
+        quantity,
+        unitPrice: product.price,
+      }),
+    );
 
-        const quantity = quantities.get(productId)!;
-
-        if (product.stock < quantity) {
-          throw new BadRequestException(
-            `Insufficient stock for product ${productId}`,
-          );
-        }
-
-        const [whole, fraction = ''] = product.price.split('.');
-        const priceCents =
-          Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
-
-        totalCents += priceCents * quantity;
-
-        orderItems.push(
-          manager.create(OrderItem, {
-            productId: product.id,
-            quantity,
-            unitPrice: product.price,
-          }),
-        );
-
-        product.stock -= quantity;
-        await productRepository.save(product);
-      }
-
-      const order = orderRepository.create({
-        status: OrderStatus.PENDING,
-        totalAmount: `${Math.floor(totalCents / 100)}.${String(
-          totalCents % 100,
-        ).padStart(2, '0')}`,
-        items: orderItems,
-      });
-
-      return orderRepository.save(order);
-    });
+    product.stock -= quantity;
+    await productRepository.save(product);
   }
+
+  const newOrder = orderRepository.create({
+    customerName: dto.customerName,
+    customerEmail: dto.customerEmail,
+    status: OrderStatus.PENDING,
+    totalAmount: `${Math.floor(totalCents / 100)}.${String(
+      totalCents % 100,
+    ).padStart(2, '0')}`,
+    items: orderItems,
+  });
+
+  return orderRepository.save(newOrder);
+  });
+
+  await this.orderQueue.add(
+    'process-order',
+    { orderId: order.id },
+    {
+      jobId: `order-${order.id}`,
+      attempts: 3,
+      backoff: {
+        type: 'exponential',
+        delay: 1000,
+      },
+      removeOnComplete: false,
+      removeOnFail: false,
+    },
+  );
+
+  await this.autoCancelQueue.add(
+    'auto-cancel-order',
+    { orderId: order.id },
+    {
+      jobId: `auto-cancel-order-${order.id}`,
+      delay: 30 * 60 * 1000,
+      removeOnComplete: false,
+      removeOnFail: false,
+    },
+  );
+
+    return order;
+  }
+
 
   async findAll(page = 1, limit = 10, status?: OrderStatus) {
     if (!Number.isInteger(page) || page < 1) {
@@ -203,5 +241,42 @@ export class OrdersService {
       };
     });
   }
+  async getJobStatus(orderId: number) {
+    const order = await this.ordersRepository.findOne({
+      where: { id: orderId },
+    });
 
+    if (!order) {
+      throw new NotFoundException(`Order with ID ${orderId} not found`);
+    }
+
+    const job = await this.orderQueue.getJob(`order-${orderId}`);
+
+    if (!job) {
+      return {
+        orderId,
+        orderStatus: order.status,
+        job: null,
+        message: 'No BullMQ job found for this order',
+      };
+    }
+
+    const state = await job.getState();
+
+    return {
+      orderId,
+      orderStatus: order.status,
+      job: {
+        id: job.id,
+        name: job.name,
+        state,
+        attemptsMade: job.attemptsMade,
+        maxAttempts: job.opts.attempts ?? 1,
+        failedReason: job.failedReason || null,
+        timestamp: job.timestamp,
+        processedOn: job.processedOn ?? null,
+        finishedOn: job.finishedOn ?? null,
+      },
+    };
+  }
 }

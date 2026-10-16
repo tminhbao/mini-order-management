@@ -4,10 +4,10 @@ import {
     Body,
     Controller,
     DefaultValuePipe,
-    Delete,
     Get,
     Param,
     ParseIntPipe,
+    Patch,
     Post,
     Query,
 } from '@nestjs/common';
@@ -59,6 +59,12 @@ export class OrdersController {
     return this.ordersService.findAll(page, limit, status);
   }
 
+  @Get(':id/jobs')
+  @ApiOperation({ summary: 'Get order processing job status' })
+  getJobStatus(@Param('id', ParseIntPipe) id: number) {
+    return this.ordersService.getJobStatus(id);
+  }
+
   @Get(':id')
   @ApiOperation({ summary: 'Get order details' })
   findOne(@Param('id', ParseIntPipe) id: number) {
@@ -66,7 +72,7 @@ export class OrdersController {
   }
 
   
-  @Delete(':id')
+  @Patch(':id/cancel')
   @ApiOperation({ summary: 'Cancel an order and restore stock' })
   cancel(@Param('id', ParseIntPipe) id: number) {
     return this.ordersService.cancel(id);

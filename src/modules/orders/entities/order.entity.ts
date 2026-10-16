@@ -7,8 +7,8 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { OrderItem } from './order-item.entity.js';
 import type { Relation } from 'typeorm';
+import { OrderItem } from './order-item.entity.js';
 
 export enum OrderStatus {
   PENDING = 'PENDING',
@@ -23,6 +23,12 @@ export enum OrderStatus {
 export class Order {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'varchar', length: 100 })
+  customerName: string;
+
+  @Column({ type: 'varchar', length: 255 })
+  customerEmail: string;
 
   @Column({
     type: 'enum',

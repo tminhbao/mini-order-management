@@ -3,8 +3,12 @@ import { ApiProperty } from '@nestjs/swagger';
 import {
   ArrayMinSize,
   IsArray,
+  IsEmail,
   IsInt,
+  IsNotEmpty,
   IsPositive,
+  IsString,
+  MaxLength,
   ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
@@ -22,6 +26,17 @@ class CreateOrderItemDto {
 }
 
 export class CreateOrderDto {
+  @ApiProperty({ example: 'Nguyen Van An' })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  customerName: string;
+
+  @ApiProperty({ example: 'an@example.com' })
+  @IsEmail()
+  @MaxLength(255)
+  customerEmail: string;
+
   @ApiProperty({
     type: [CreateOrderItemDto],
     example: [
