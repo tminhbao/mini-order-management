@@ -6,6 +6,7 @@ import { DataSource, Repository } from 'typeorm';
 import { Order, OrderStatus } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { Product } from '../products/entities/product.entity.js';
+import { NotificationLog } from './entities/notification-log.entity.js';
 
 @Processor('order-processing')
 export class OrderProcessingProcessor extends WorkerHost {
@@ -84,7 +85,21 @@ export class OrderProcessingProcessor extends WorkerHost {
 
       order.status = OrderStatus.CONFIRMED;
       await orderRepository.save(order);
-    });
+
+      const notificationRepository =
+      manager.getRepository(NotificationLog);
+
+      const existingNotification = await notificationRepository.findOneBy({
+        orderId: order.id,
+      });
+
+      if (!existingNotification) {
+        await notificationRepository.save({
+          orderId: order.id,
+          message: `Order ${order.id} confirmed successfully`,
+        });
+      }
+      });
 
     console.log(`Order ${orderId} confirmed successfully`);
   }
