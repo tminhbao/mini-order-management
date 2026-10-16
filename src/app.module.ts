@@ -26,6 +26,9 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         database: configService.get<string>('POSTGRES_DB'),
         autoLoadEntities: true,
         synchronize: false,
+        ssl: process.env.POSTGRES_SSL === 'true'
+          ? { rejectUnauthorized: false }
+          : false,
       }),
     }),
     ProductsModule,
