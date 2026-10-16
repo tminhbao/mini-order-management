@@ -2,6 +2,8 @@
 import 'dotenv/config';
 import { DataSource } from 'typeorm';
 import { Product } from './modules/products/entities/product.entity.js';
+import { Order } from './modules/orders/entities/order.entity.js';
+import { OrderItem } from './modules/orders/entities/order-item.entity.js';
 
 export default new DataSource({
   type: 'postgres',
@@ -11,7 +13,7 @@ export default new DataSource({
   password: process.env.POSTGRES_PASSWORD,
   database: process.env.POSTGRES_DB,
 
-  entities: [Product],
+  entities: [Product, Order, OrderItem],
   migrations: ['src/database/migrations/*.ts'],
   synchronize: false,
 });

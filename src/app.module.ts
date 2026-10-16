@@ -4,8 +4,8 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { Product } from './modules/products/entities/product.entity.js';
 import { ProductsModule } from './modules/products/products.module.js';
+import { OrdersModule } from './modules/orders/orders.module.js';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
@@ -27,8 +27,8 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
         synchronize: false,
       }),
     }),
-    Product,
-    ProductsModule
+    ProductsModule,
+    OrdersModule
   ],
   controllers: [AppController],
   providers: [AppService],
