@@ -1,118 +1,195 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+# Mini Order Management
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+A REST API for managing products and orders, built with NestJS, PostgreSQL, TypeORM, BullMQ, and Redis.
 
-## Description
+## Features
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### Products
 
-## Project setup
+- Create, retrieve, update, and soft-delete products.
+- Unique SKU and non-negative stock validation.
+- Search by product name.
+- Filter by minimum and maximum price.
+- Pagination with `page` and `limit`.
+
+### Orders
+
+- Create orders with customer information and multiple items.
+- Validate product availability and reserve stock in a database transaction.
+- Store each item's purchase-time unit price.
+- List orders with pagination and status filtering.
+- Retrieve order details and processing job status.
+- Cancel eligible orders and restore reserved stock.
+
+### Background processing
+
+- Process orders asynchronously using BullMQ and Redis.
+- Simulate a 3–5 second processing time and approximately 30% random failures.
+- Retry failed jobs up to 3 attempts with exponential backoff.
+- Change successful orders to `CONFIRMED` and record a notification log.
+- Mark permanently failed orders as `FAILED` and restore stock.
+- Schedule a delayed cancellation job for each order; pending orders are cancelled after 30 minutes and their stock is restored.
+
+## Tech Stack
+
+- Node.js and TypeScript
+- NestJS
+- PostgreSQL
+- TypeORM migrations
+- BullMQ and Redis
+- Swagger / OpenAPI
+- Docker Compose
+
+## Prerequisites
+
+- Node.js compatible with the project dependencies
+- npm
+- Docker Desktop with Docker Compose
+
+## Getting Started
+
+### 1. Install dependencies
 
 ```bash
-$ npm install
+npm install
 ```
 
-## Compile and run the project
+### 2. Configure environment variables
 
-```bash
-# development
-$ npm run start
+Copy `.env.example` to `.env`.
 
-# watch mode
-$ npm run start:dev
+On Windows PowerShell:
 
-# production mode
-$ npm run start:prod
+```powershell
+Copy-Item .env.example .env
 ```
 
-## Run tests
+On macOS/Linux:
 
 ```bash
-# unit tests
-$ npm run test
+cp .env.example .env
+```
 
-# e2e tests
-$ npm run test:e2e
+Adjust the values if your local setup uses different ports or credentials.
 
-# test coverage
-$ npm run test:cov
+### 3. Start PostgreSQL and Redis
+
+```bash
+docker compose up -d
+```
+
+Check service status:
+
+```bash
+docker compose ps
+```
+
+Wait until PostgreSQL and Redis are healthy.
+
+### 4. Run database migrations
+
+```bash
+npm run migration:run
+```
+
+The application uses `synchronize: false`; database schema changes are managed through migrations.
+
+### 5. Start the API
+
+Development mode:
+
+```bash
+npm run start:dev
+```
+
+The API listens on the port configured by `PORT` (default: `3000`).
+
+Swagger documentation:
+
+<http://localhost:3000/api/docs>
+
+## API Overview
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| POST | `/products` | Create a product |
+| GET | `/products` | Search and list products |
+| GET | `/products/:id` | Get a product |
+| PATCH | `/products/:id` | Update a product |
+| DELETE | `/products/:id` | Soft-delete a product |
+| POST | `/orders` | Create an order |
+| GET | `/orders` | List orders |
+| GET | `/orders/:id` | Get order details |
+| PATCH | `/orders/:id/cancel` | Cancel an eligible order |
+| GET | `/orders/:id/jobs` | Inspect processing job status |
+
+Refer to Swagger for request schemas, validation rules, and response formats.
+
+## Order Processing Flow
+
+1. The API validates the order request.
+2. A database transaction locks the requested products, checks stock, deducts quantities, and creates the order with status `PENDING`.
+3. After the transaction commits, the API enqueues an order-processing job.
+4. The worker processes the order asynchronously.
+5. On success, the order becomes `CONFIRMED` and a notification log is written.
+6. After the final processing failure, the order becomes `FAILED` and reserved stock is restored.
+7. A delayed job cancels an order if it is still `PENDING` after 30 minutes and restores its stock.
+
+## Concurrency and Stock Consistency
+
+Product rows are locked during order creation to prevent concurrent requests from reserving more stock than is available. Product IDs are processed in sorted order to reduce the risk of deadlocks.
+
+Cancellation and final-failure stock restoration run in database transactions and lock the order before changing its status. This prevents the same order from being refunded multiple times through the normal processing flow.
+
+Order creation and queue submission are separate operations. A Redis or queue failure after the database transaction commits can leave an order without a processing job; a transactional outbox would be a stronger production solution.
+
+## Database Migrations
+
+Run pending migrations:
+
+```bash
+npm run migration:run
+```
+
+Revert the latest migration:
+
+```bash
+npm run migration:revert
+```
+
+Do not use destructive database reset commands against data you need to preserve.
+
+## Tests
+
+Run the unit test suite:
+
+```bash
+npm run test
+```
+
+Run end-to-end tests:
+
+```bash
+npm run test:e2e
+```
+
+Build the application:
+
+```bash
+npm run build
 ```
 
 ## Deployment
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+The API and BullMQ worker are registered in the NestJS application. Run the application with its required PostgreSQL and Redis services available.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Before deploying:
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+- Configure production environment variables.
+- Run database migrations.
+- Build the application with `npm run build`.
+- Start the application with `npm run start:prod`.
+- Verify the Swagger endpoint and the order-processing flow.
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
-
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-This project is already instrumented. Create a free account at [observe.nestjs.com](https://observe.nestjs.com), add an application, and paste the generated app key and secret into the `ObserveModule.forRoot()` call in `src/app.module.ts`.
-
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+Deployment URL: not yet configured.
